@@ -75,6 +75,23 @@ func emailWorker(
 
 		// 2. Dispatch via Resend HTTP API (Port 443 - Never blocked on Render cloud)
 		if resendAPIKey != "" {
+			// For fake sample contacts (@example.com), simulate delivery so demo looks clean without hitting Resend's 422 error
+			if strings.HasSuffix(strings.ToLower(recipient.Email), "@example.com") {
+				time.Sleep(100 * time.Millisecond)
+				if recipient.Email == "user25@example.com" {
+					errMsg := "Simulated bounce: mailbox does not exist (550 User Unknown)"
+					log.Printf("⚠️ [Worker %d] Simulated DLQ Failure for %s\n", id, recipient.Email)
+					_ = updateContactStatus(db, recipient.Email, "FAILED", errMsg)
+					_ = pushToDLQ(context.Background(), rdb, recipient, errMsg, id)
+				} else {
+					_ = updateContactStatus(db, recipient.Email, "SENT", "")
+					fmt.Printf("✅ [Worker %d] Successfully processed: %s\n", id, recipient.Email)
+				}
+				continue
+			}
+
+			// For real email addresses (like rtanmay52@gmail.com), send REAL email via Resend HTTP API!
+			time.Sleep(600 * time.Millisecond) // Throttling to respect Resend 10 req/sec limit
 			subject, body := parseEmailMessage(msg)
 			err = sendViaResend(resendAPIKey, senderEmail, recipient.Email, subject, body)
 		} else if isDemoMode {
