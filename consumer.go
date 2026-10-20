@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/smtp"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,23 +27,24 @@ func emailWorker(
 ) {
 	defer wg.Done()
 
-	smtpHost := os.Getenv("SMTP_HOST")
+	smtpHost := strings.TrimSpace(os.Getenv("SMTP_HOST"))
 	if smtpHost == "" {
 		smtpHost = "localhost"
 	}
-	smtpPort := os.Getenv("SMTP_PORT")
+	smtpPort := strings.TrimSpace(os.Getenv("SMTP_PORT"))
 	if smtpPort == "" {
 		smtpPort = "1025"
 	}
-	senderEmail := os.Getenv("SENDER_EMAIL")
+	senderEmail := strings.TrimSpace(os.Getenv("SENDER_EMAIL"))
 	if senderEmail == "" {
 		senderEmail = "gtu.tanmay@gmail.com"
 	}
 
-	// Support SMTP authentication for production email providers (SendGrid, AWS SES, Brevo, Gmail, etc.)
+	// Support SMTP authentication for production email providers (Gmail, Brevo, SendGrid, etc.)
 	var auth smtp.Auth
-	smtpUser := os.Getenv("SMTP_USER")
-	smtpPass := os.Getenv("SMTP_PASS")
+	smtpUser := strings.TrimSpace(os.Getenv("SMTP_USER"))
+	// Strip any spaces from Google App Password (e.g. 'zzan mhvk ...' -> 'zzanmhvk...')
+	smtpPass := strings.ReplaceAll(strings.TrimSpace(os.Getenv("SMTP_PASS")), " ", "")
 	if smtpUser != "" && smtpPass != "" {
 		auth = smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
 	}
