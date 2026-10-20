@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GrutMail - High-Throughput Email Dispatcher</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <div class="logo-group">
+      <span class="logo-badge">GM</span>
+      <h1 class="brand-name">GrutMail</h1>
+      <span class="brand-desc">Concurrent Bulk Email Engine</span>
+    </div>
+    <div class="nav-actions">
+      <a href="http://localhost:8025" target="_blank" rel="noopener noreferrer" class="btn-secondary" id="btn-mailpit" title="Open Mailpit inbox">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+        Mailpit Inbox
+      </a>
+      <button class="btn-primary" id="btn-quick-dispatch">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+        Dispatch Campaign
+      </button>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- Top Metrics Overview -->
+    <section class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-label">Total Contacts</div>
+        <div class="metric-value" id="stat-total">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Delivered (Sent)</div>
+        <div class="metric-value" id="stat-sent">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Pending Delivery</div>
+        <div class="metric-value" id="stat-pending">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Failed In DB</div>
+        <div class="metric-value" id="stat-failed">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Redis DLQ Queue</div>
+        <div class="metric-value" id="stat-dlq">0</div>
+      </div>
+    </section>
+
+    <!-- Navigation Tabs -->
+    <nav class="tab-navigation">
+      <button class="tab-btn active" data-tab="tab-campaign">Campaign Dispatcher</button>
+      <button class="tab-btn" data-tab="tab-template">Email Template Customizer</button>
+      <button class="tab-btn" data-tab="tab-contacts">PostgreSQL Contacts</button>
+      <button class="tab-btn" data-tab="tab-dlq">Redis Dead Letter Queue (DLQ)</button>
+    </nav>
+
+    <!-- Tab 1: Campaign Dispatcher & Live Log -->
+    <div class="tab-panel active" id="tab-campaign">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Live Dispatch Control</h2>
+            <p class="card-subtitle">Run the 5-worker concurrent pool to dispatch pending emails via SMTP</p>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button class="btn-secondary" id="btn-reset-pending">Reset All to Pending</button>
+            <button class="btn-primary" id="btn-start-campaign">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              Start Sending Emails
+            </button>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 1rem;">
+          <label class="form-label">Worker Activity Terminal</label>
+          <div class="terminal-box" id="terminal-logs">
+            <div class="log-entry info">[System] GrutMail initialized. Ready to dispatch.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: Email Template Customizer -->
+    <div class="tab-panel" id="tab-template">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Customize Email Template</h2>
+            <p class="card-subtitle">Personalize your subject and message body. Changes apply to all upcoming dispatches.</p>
+          </div>
+          <button class="btn-primary" id="btn-save-template">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            Save Template
+          </button>
+        </div>
+
+        <div class="template-grid">
+          <!-- Left: Template Editor -->
+          <div class="editor-pane">
+            <div class="form-group">
+              <label class="form-label" for="tpl-subject">Email Subject</label>
+              <input type="text" id="tpl-subject" class="form-input" placeholder="e.g. Hello, {{.Name}}! Special Campaign Update">
+              <div class="tag-buttons">
+                <span style="font-size: 0.75rem; color: var(--text-muted); align-self: center;">Insert Token:</span>
+                <button type="button" class="tag-btn" onclick="insertToken('tpl-subject', '{{.Name}}')">+ {{.Name}}</button>
+                <button type="button" class="tag-btn" onclick="insertToken('tpl-subject', '{{.Email}}')">+ {{.Email}}</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="tpl-body">Email Body</label>
+              <textarea id="tpl-body" class="form-textarea" placeholder="Write your personalized email template here..."></textarea>
+              <div class="tag-buttons">
+                <span style="font-size: 0.75rem; color: var(--text-muted); align-self: center;">Insert Token:</span>
+                <button type="button" class="tag-btn" onclick="insertToken('tpl-body', '{{.Name}}')">+ {{.Name}}</button>
+                <button type="button" class="tag-btn" onclick="insertToken('tpl-body', '{{.Email}}')">+ {{.Email}}</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Live Preview Mockup -->
+          <div class="preview-pane">
+            <label class="form-label">Live Preview (Recipient: Jane Doe)</label>
+            <div class="preview-box">
+              <div class="preview-header">
+                <div class="preview-header-item">To: <span>Jane Doe &lt;jane.doe@example.com&gt;</span></div>
+                <div class="preview-header-item">Subject: <span id="preview-subject">-</span></div>
+              </div>
+              <div class="preview-body" id="preview-body">-</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 3: Contacts Manager -->
+    <div class="tab-panel" id="tab-contacts">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Contacts Registry (PostgreSQL)</h2>
+            <p class="card-subtitle">Real-time recipient list synced with the PostgreSQL database</p>
+          </div>
+          <button class="btn-secondary" id="btn-refresh-contacts">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            Refresh
+          </button>
+        </div>
+
+        <!-- Add Contact Mini Form -->
+        <form id="form-add-contact" style="display: flex; gap: 0.75rem; margin-bottom: 1.5rem; align-items: flex-end;">
+          <div style="flex: 1;">
+            <label class="form-label" style="font-size: 0.75rem;">Full Name</label>
+            <input type="text" id="add-name" class="form-input" placeholder="e.g. John Doe" required>
+          </div>
+          <div style="flex: 1.5;">
+            <label class="form-label" style="font-size: 0.75rem;">Email Address</label>
+            <input type="email" id="add-email" class="form-input" placeholder="e.g. john@example.com" required>
+          </div>
+          <button type="submit" class="btn-primary" style="height: 40px;">+ Add Contact</button>
+        </form>
+
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th>Error Message</th>
+              </tr>
+            </thead>
+            <tbody id="contacts-table-body">
+              <tr><td colspan="5" style="text-align:center; color: var(--text-muted);">Loading contacts...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 4: Redis DLQ -->
+    <div class="tab-panel" id="tab-dlq">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Dead Letter Queue (Redis)</h2>
+            <p class="card-subtitle">Failed delivery messages stored in Redis list 'email:dlq' for debugging & retry</p>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button class="btn-secondary" id="btn-clear-dlq">Clear DLQ</button>
+            <button class="btn-primary" id="btn-retry-dlq">Retry All DLQ Items</button>
+          </div>
+        </div>
+
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Recipient Name</th>
+                <th>Recipient Email</th>
+                <th>Worker ID</th>
+                <th>Error Reason</th>
+                <th>Failed At</th>
+              </tr>
+            </thead>
+            <tbody id="dlq-table-body">
+              <tr><td colspan="5" style="text-align:center; color: var(--text-muted);">No messages in Dead Letter Queue.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">Notification message</div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
