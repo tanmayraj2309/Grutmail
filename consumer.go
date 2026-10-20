@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
+	"net/http"
 	"net/smtp"
 	"os"
 	"strings"
@@ -40,10 +44,12 @@ func emailWorker(
 		senderEmail = "gtu.tanmay@gmail.com"
 	}
 
-	// Support SMTP authentication for production email providers (Gmail, Brevo, SendGrid, etc.)
+	// Resend HTTP API Key (Works 100% on Render over HTTPS Port 443 without port 587 blocks)
+	resendAPIKey := strings.TrimSpace(os.Getenv("RESEND_API_KEY"))
+
+	// Support SMTP authentication for production email providers
 	var auth smtp.Auth
 	smtpUser := strings.TrimSpace(os.Getenv("SMTP_USER"))
-	// Strip any spaces from Google App Password (e.g. 'zzan mhvk ...' -> 'zzanmhvk...')
 	smtpPass := strings.ReplaceAll(strings.TrimSpace(os.Getenv("SMTP_PASS")), " ", "")
 	if smtpUser != "" && smtpPass != "" {
 		auth = smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
@@ -67,8 +73,12 @@ func emailWorker(
 
 		fmt.Printf("📨 [Worker %d] Dispatching email to: %s\n", id, recipient.Email)
 
-		// 2. Demo / Simulation Mode for Cloud Portfolios (Bypasses Render's port 587 block)
-		if isDemoMode {
+		// 2. Dispatch via Resend HTTP API (Port 443 - Never blocked on Render cloud)
+		if resendAPIKey != "" {
+			subject, body := parseEmailMessage(msg)
+			err = sendViaResend(resendAPIKey, senderEmail, recipient.Email, subject, body)
+		} else if isDemoMode {
+			// 3. Demo / Simulation Mode for Cloud Portfolios (Bypasses Render's port 587 block)
 			time.Sleep(100 * time.Millisecond) // realistic delivery latency
 			
 			// If recipient has 'fail' in email OR is user25, simulate failure & push to Redis DLQ to showcase DLQ feature
@@ -82,32 +92,97 @@ func emailWorker(
 				fmt.Printf("✅ [Worker %d] Successfully delivered to: %s\n", id, recipient.Email)
 			}
 			continue
+		} else {
+			// 4. Dispatch email via Real SMTP server
+			err = smtp.SendMail(
+				smtpHost+":"+smtpPort,
+				auth,
+				senderEmail,
+				[]string{recipient.Email},
+				[]byte(msg),
+			)
 		}
 
-		// 3. Dispatch email via Real SMTP server
-		err = smtp.SendMail(
-			smtpHost+":"+smtpPort,
-			auth,
-			senderEmail,
-			[]string{recipient.Email},
-			[]byte(msg),
-		)
-
 		if err != nil {
-			// Production fix: DO NOT crash the program with log.Fatal!
-			// Log error, mark FAILED in Postgres, and push to Redis DLQ.
-			errMsg := fmt.Sprintf("SMTP send error: %v", err)
+			// Record failure in PostgreSQL & push to Redis DLQ
+			errMsg := fmt.Sprintf("Delivery error: %v", err)
 			log.Printf("⚠️ [Worker %d] Failed to send to %s: %v\n", id, recipient.Email, err)
 
 			_ = updateContactStatus(db, recipient.Email, "FAILED", errMsg)
 			_ = pushToDLQ(context.Background(), rdb, recipient, errMsg, id)
 		} else {
-			// 3. Mark successfully SENT in PostgreSQL
+			// Mark successfully SENT in PostgreSQL
 			_ = updateContactStatus(db, recipient.Email, "SENT", "")
 			fmt.Printf("✅ [Worker %d] Successfully delivered to: %s\n", id, recipient.Email)
 		}
 
-		// 4. Rate-limiting throttle
+		// Rate-limiting throttle
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// sendViaResend sends a real email using Resend HTTP API over standard Port 443 HTTPS (Never blocked by cloud firewalls).
+func sendViaResend(apiKey, fromEmail, toEmail, subject, body string) error {
+	from := "GrutMail <onboarding@resend.dev>"
+	if fromEmail != "" && !strings.Contains(fromEmail, "gmail.com") {
+		from = fromEmail
+	}
+
+	payload := map[string]interface{}{
+		"from":    from,
+		"to":      []string{toEmail},
+		"subject": subject,
+		"text":    body,
+	}
+
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", "https://api.resend.com/emails", bytes.NewBuffer(jsonBytes))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("resend api error (%d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
+// parseEmailMessage extracts Subject and Body from RFC 822 formatted template output.
+func parseEmailMessage(raw string) (string, string) {
+	lines := strings.Split(raw, "\n")
+	subject := "GrutMail Campaign Update"
+	bodyStartIndex := -1
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToLower(trimmed), "subject:") {
+			subject = strings.TrimSpace(line[strings.Index(line, ":")+1:])
+		}
+		if trimmed == "" && bodyStartIndex == -1 && i > 0 {
+			bodyStartIndex = i + 1
+		}
+	}
+
+	body := raw
+	if bodyStartIndex != -1 && bodyStartIndex < len(lines) {
+		body = strings.TrimSpace(strings.Join(lines[bodyStartIndex:], "\n"))
+	}
+
+	return subject, body
 }
