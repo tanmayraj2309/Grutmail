@@ -87,20 +87,7 @@ go run .
 
 ---
 
-## ☁️ Deployment Guide (Railway / Render / VPS)
 
-### Option 1: Railway (Recommended)
-1. Push this repository to your GitHub account.
-2. Sign in to [Railway.app](https://railway.app/) and click **"New Project"** -> **"Deploy from GitHub repo"**.
-3. In your Railway project, click **"+ New"** -> **"Database"** -> **"PostgreSQL"**.
-4. Click **"+ New"** -> **"Database"** -> **"Redis"**.
-5. In your web service settings, add Environment Variables:
-   - `DATABASE_URL`: `${{Postgres.DATABASE_URL}}`
-   - `REDIS_URL`: `${{Redis.REDIS_URL}}`
-   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`: Your production SMTP provider (SendGrid, Brevo, AWS SES, or Gmail).
-6. Railway will automatically build the `Dockerfile` and assign an HTTPS public domain!
-
----
 
 ## 📄 License
 This project is open-source and available under the [MIT License](LICENSE).

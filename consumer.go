@@ -49,6 +49,9 @@ func emailWorker(
 		auth = smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
 	}
 
+	// Check if running in Cloud Demo / Simulation mode
+	isDemoMode := os.Getenv("DEMO_MODE") == "true" || smtpHost == "demo" || smtpHost == "mock" || smtpHost == "simulation"
+
 	for recipient := range ch {
 		// 1. Render dynamic email from memory-cached template
 		msg, err := executeTemplate(tmpl, recipient)
@@ -64,7 +67,24 @@ func emailWorker(
 
 		fmt.Printf("📨 [Worker %d] Dispatching email to: %s\n", id, recipient.Email)
 
-		// 2. Dispatch email via SMTP server
+		// 2. Demo / Simulation Mode for Cloud Portfolios (Bypasses Render's port 587 block)
+		if isDemoMode {
+			time.Sleep(100 * time.Millisecond) // realistic delivery latency
+			
+			// If recipient has 'fail' in email, simulate failure & DLQ for testing
+			if strings.Contains(strings.ToLower(recipient.Email), "fail") {
+				errMsg := "Simulated bounce: recipient mailbox does not exist"
+				log.Printf("⚠️ [Worker %d] Demo Simulated Failure for %s\n", id, recipient.Email)
+				_ = updateContactStatus(db, recipient.Email, "FAILED", errMsg)
+				_ = pushToDLQ(context.Background(), rdb, recipient, errMsg, id)
+			} else {
+				_ = updateContactStatus(db, recipient.Email, "SENT", "")
+				fmt.Printf("✅ [Worker %d] Successfully delivered to: %s\n", id, recipient.Email)
+			}
+			continue
+		}
+
+		// 3. Dispatch email via Real SMTP server
 		err = smtp.SendMail(
 			smtpHost+":"+smtpPort,
 			auth,

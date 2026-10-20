@@ -279,7 +279,7 @@ async function triggerCampaign() {
       const err = await res.text();
       appendTerminalLog(`❌ Failed to start campaign: ${err}`, 'error');
     } else {
-      appendTerminalLog('Worker pool dispatched! Check Mailpit (localhost:8025) for live emails.', 'success');
+      appendTerminalLog('Worker pool dispatched! Processing recipients...', 'success');
       showToast('Campaign successfully started!');
     }
   } catch (err) {
