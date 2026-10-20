@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -24,14 +26,29 @@ type DLQMessage struct {
 func initRedis() (*redis.Client, error) {
 	var rdb *redis.Client
 
-	redisURL := os.Getenv("REDIS_URL")
-	if redisURL != "" {
+	// 1. Direct Upstash REST URL + Token support
+	upstashURL := os.Getenv("UPSTASH_REDIS_REST_URL")
+	upstashToken := os.Getenv("UPSTASH_REDIS_REST_TOKEN")
+
+	if upstashURL != "" && upstashToken != "" {
+		host := strings.TrimPrefix(upstashURL, "https://")
+		host = strings.TrimPrefix(host, "http://")
+		host = strings.TrimRight(host, "/")
+
+		rdb = redis.NewClient(&redis.Options{
+			Addr:      host + ":6379",
+			Password:  upstashToken,
+			TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+		})
+	} else if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
+		// 2. Standard REDIS_URL (e.g. rediss://default:...@host:6379)
 		opt, err := redis.ParseURL(redisURL)
 		if err != nil {
 			return nil, fmt.Errorf("invalid REDIS_URL: %w", err)
 		}
 		rdb = redis.NewClient(opt)
 	} else {
+		// 3. Fallback to local Docker Redis
 		addr := os.Getenv("REDIS_ADDR")
 		if addr == "" {
 			addr = "localhost:6379"
@@ -43,7 +60,7 @@ func initRedis() (*redis.Client, error) {
 		})
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
