@@ -281,6 +281,16 @@ async function triggerCampaign() {
     } else {
       appendTerminalLog('Worker pool dispatched! Processing recipients...', 'success');
       showToast('Campaign successfully started!');
+      
+      // Live polling every 500ms while workers are active
+      let pollCount = 0;
+      const livePoll = setInterval(() => {
+        loadStats();
+        loadContacts();
+        loadDLQ();
+        pollCount++;
+        if (pollCount > 8) clearInterval(livePoll);
+      }, 500);
     }
   } catch (err) {
     appendTerminalLog(`❌ Network error triggering campaign: ${err}`, 'error');
@@ -292,7 +302,7 @@ async function triggerCampaign() {
       loadStats();
       loadContacts();
       loadDLQ();
-    }, 2000);
+    }, 4500);
   }
 }
 

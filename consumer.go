@@ -71,10 +71,10 @@ func emailWorker(
 		if isDemoMode {
 			time.Sleep(100 * time.Millisecond) // realistic delivery latency
 			
-			// If recipient has 'fail' in email, simulate failure & DLQ for testing
-			if strings.Contains(strings.ToLower(recipient.Email), "fail") {
-				errMsg := "Simulated bounce: recipient mailbox does not exist"
-				log.Printf("⚠️ [Worker %d] Demo Simulated Failure for %s\n", id, recipient.Email)
+			// If recipient has 'fail' in email OR is user25, simulate failure & push to Redis DLQ to showcase DLQ feature
+			if strings.Contains(strings.ToLower(recipient.Email), "fail") || recipient.Email == "user25@example.com" {
+				errMsg := "Simulated bounce: recipient mailbox does not exist (550 User Unknown)"
+				log.Printf("⚠️ [Worker %d] Demo Simulated Failure for %s -> Pushed to Redis DLQ\n", id, recipient.Email)
 				_ = updateContactStatus(db, recipient.Email, "FAILED", errMsg)
 				_ = pushToDLQ(context.Background(), rdb, recipient, errMsg, id)
 			} else {
